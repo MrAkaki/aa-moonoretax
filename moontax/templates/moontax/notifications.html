@@ -1,0 +1,59 @@
+{% extends "moontax/base.html" %}
+{% load i18n %}
+
+{% block moontax_title %}{% translate "Moon Ore Tax — Notifications" %}{% endblock %}
+
+{% block moontax_content %}
+
+  <p>
+    {% translate "Choose which push notifications you receive. Unchecking a box only suppresses the notification — your invoices and extractions still appear on the dashboard. Overdue-invoice reminders are always sent regardless of these settings." %}
+  </p>
+
+  <form method="post">
+    {% csrf_token %}
+    <div class="card mb-4">
+      <div class="card-body">
+
+        <div class="mb-3">
+          <div class="form-check">
+            {{ form.moon_pop }}
+            <label class="form-check-label" for="{{ form.moon_pop.id_for_label }}">
+              {{ form.moon_pop.label }}
+            </label>
+            {% if form.moon_pop.help_text %}
+              <div class="form-text text-muted">{{ form.moon_pop.help_text }}</div>
+            {% endif %}
+          </div>
+        </div>
+
+        <div class="mb-3">
+          <div class="form-check">
+            {{ form.moon_dead }}
+            <label class="form-check-label" for="{{ form.moon_dead.id_for_label }}">
+              {{ form.moon_dead.label }}
+            </label>
+            {% if form.moon_dead.help_text %}
+              <div class="form-text text-muted">{{ form.moon_dead.help_text }}</div>
+            {% endif %}
+          </div>
+        </div>
+
+        <div class="mb-3">
+          <div class="form-check">
+            {{ form.invoice_emitted }}
+            <label class="form-check-label" for="{{ form.invoice_emitted.id_for_label }}">
+              {{ form.invoice_emitted.label }}
+            </label>
+            {% if form.invoice_emitted.help_text %}
+              <div class="form-text text-muted">{{ form.invoice_emitted.help_text }}</div>
+            {% endif %}
+          </div>
+        </div>
+
+        <button class="btn btn-primary btn-sm" type="submit">{% translate "Save preferences" %}</button>
+
+      </div>
+    </div>
+  </form>
+
+{% endblock %}

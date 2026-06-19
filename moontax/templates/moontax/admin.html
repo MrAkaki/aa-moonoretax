@@ -1,0 +1,81 @@
+{% extends "moontax/base.html" %}
+{% load i18n %}
+
+{% block moontax_title %}{% translate "Moon Ore Tax — Admin" %}{% endblock %}
+
+{% block moontax_content %}
+
+  <h4>{% translate "Corp token" %}</h4>
+  <div class="card mb-4"><div class="card-body">
+    {% if token and token.token_id %}
+      <p>
+        {% translate "Current token" %}:
+        <strong>{{ token.character_name }}</strong> — {{ token.corporation_name }}
+        {% if token.is_valid %}
+          <span class="badge bg-success">{% translate "valid" %}</span>
+        {% else %}
+          <span class="badge bg-danger">{% translate "broken" %}</span>
+          <span class="text-muted small">{{ token.last_error }}</span>
+        {% endif %}
+      </p>
+      <p class="mb-0 text-muted">
+        {% translate "Target corporation" %} ({% translate "from the token" %}):
+        <strong>{{ config.target_corporation_name|default:config.target_corporation_id|default:"—" }}</strong>
+        {% if config.target_corporation_id %}<span class="small">(id {{ config.target_corporation_id }})</span>{% endif %}
+      </p>
+    {% else %}
+      <p class="text-muted">{% translate "No corp token configured. A Director or CEO must add one." %}</p>
+    {% endif %}
+    <a class="btn btn-primary btn-sm" href="{% url 'moontax:token_setup' %}">
+      <i class="fas fa-key"></i> {% translate "Set up corp token" %}
+    </a>
+    {% if token and token.token_id %}
+      <form method="post" action="{% url 'moontax:token_remove' %}" class="d-inline">
+        {% csrf_token %}
+        <button class="btn btn-outline-danger btn-sm">{% translate "Remove token" %}</button>
+      </form>
+    {% endif %}
+  </div></div>
+
+  <h4>{% translate "Configuration" %}</h4>
+  <form method="post" class="card mb-4"><div class="card-body">
+    {% csrf_token %}
+    <input type="hidden" name="form" value="config">
+    {{ config_form.as_p }}
+    <button class="btn btn-primary btn-sm" type="submit">{% translate "Save configuration" %}</button>
+  </div></form>
+
+  <h4>{% translate "Per-ore tax rates" %}</h4>
+  {% if ore_catalog_empty %}
+    <div class="alert alert-warning py-2">
+      {% translate "The moon-ore list is empty. Run" %}
+      <code>python manage.py moontax_load_ores</code>
+      {% translate "to populate it (also refreshed weekly)." %}
+    </div>
+  {% endif %}
+  <table class="table table-sm table-striped moontax-datatable">
+    <thead><tr><th>{% translate "Ore type id" %}</th><th>{% translate "Name" %}</th><th>{% translate "Rate" %}</th><th></th></tr></thead>
+    <tbody>
+      {% for r in ore_rates %}
+        <tr>
+          <td>{{ r.ore_type_id }}</td><td>{{ r.ore_type_name }}</td><td>{{ r.rate }}</td>
+          <td>
+            <form method="post" action="{% url 'moontax:ore_rate_delete' r.id %}">
+              {% csrf_token %}
+              <button class="btn btn-sm btn-outline-danger">{% translate "Delete" %}</button>
+            </form>
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <form method="post" class="row g-2 align-items-end">
+    {% csrf_token %}
+    <input type="hidden" name="form" value="ore_rate">
+    <div class="col-auto">{{ rate_form.ore_type_id.label_tag }}{{ rate_form.ore_type_id }}</div>
+    <div class="col-auto">{{ rate_form.rate.label_tag }}{{ rate_form.rate }}</div>
+    <div class="col-auto"><button class="btn btn-primary btn-sm">{% translate "Add / update rate" %}</button></div>
+  </form>
+
+{% endblock %}

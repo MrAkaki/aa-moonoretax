@@ -1,0 +1,23 @@
+{% load i18n %}
+<ul class="nav nav-tabs">
+  <li class="nav-item">
+    <a class="nav-link {% if request.resolver_match.url_name == 'index' %}active{% endif %}"
+       href="{% url 'moontax:index' %}">{% translate "Dashboard" %}</a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link {% if request.resolver_match.url_name == 'notifications' %}active{% endif %}"
+       href="{% url 'moontax:notifications' %}">{% translate "Notifications" %}</a>
+  </li>
+  {% if can_staff or can_admin %}
+    <li class="nav-item">
+      <a class="nav-link {% if request.resolver_match.url_name == 'staff' %}active{% endif %}"
+         href="{% url 'moontax:staff' %}">{% translate "Staff" %}</a>
+    </li>
+  {% endif %}
+  {% if can_admin %}
+    <li class="nav-item">
+      <a class="nav-link {% if request.resolver_match.url_name == 'admin' %}active{% endif %}"
+         href="{% url 'moontax:admin' %}">{% translate "Admin" %}</a>
+    </li>
+  {% endif %}
+</ul>

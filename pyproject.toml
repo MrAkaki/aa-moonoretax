@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aa-moonoretax"
+dynamic = ["version"]
+description = "Per-player moon-mining ore tax & ore-paid invoicing plugin for Alliance Auth."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "GPL-3.0-or-later" }
+authors = [{ name = "Alex Vargas" }]
+keywords = ["eve-online", "allianceauth", "alliance-auth", "moon-mining", "tax", "ore"]
+classifiers = [
+    "Environment :: Web Environment",
+    "Framework :: Django",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Topic :: Internet :: WWW/HTTP",
+]
+
+# Django is intentionally not pinned here: follow the version Alliance Auth requires.
+dependencies = [
+    "allianceauth>=4.0.0",
+    "django-esi>=5.0.0",
+    "allianceauth-app-utils>=1.18.0",
+    "allianceauth-discordbot>=3.0.0",
+]
+
+[project.optional-dependencies]
+test = [
+    "factory-boy",
+    "freezegun",
+    "coverage",
+]
+
+[project.urls]
+Homepage = "https://github.com/MrAkaki/aa-moonoretax"
+Source = "https://github.com/MrAkaki/aa-moonoretax"
+
+[tool.setuptools.dynamic]
+version = { attr = "moontax.__version__" }
+
+[tool.setuptools.packages.find]
+include = ["moontax*"]
+
+[tool.setuptools.package-data]
+moontax = ["templates/**/*", "static/**/*"]

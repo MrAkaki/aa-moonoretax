@@ -1,0 +1,17 @@
+/* Moon Ore Tax — light styling on top of the AA Bootstrap theme. */
+
+.moontax-warn {
+    background-color: var(--bs-warning-bg-subtle, #fff3cd);
+}
+
+#moontax table td,
+#moontax table th {
+    vertical-align: middle;
+}
+
+/* Keep the staff two-column tables readable on wide monitors. */
+@media (min-width: 1200px) {
+    .moontax-staff .col-xl-6 {
+        padding-inline: 0.75rem;
+    }
+}

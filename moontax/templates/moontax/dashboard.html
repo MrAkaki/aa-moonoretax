@@ -1,0 +1,179 @@
+{% extends "moontax/base.html" %}
+{% load i18n %}
+{% load humanize %}
+
+{% block moontax_content %}
+
+  {% if unpaid_invoices %}
+    <div class="alert alert-warning">
+      <h5 class="mb-2"><i class="fas fa-triangle-exclamation"></i> {% translate "You have unpaid invoices" %}</h5>
+      <ul class="mb-0">
+        {% for inv in unpaid_invoices %}
+          <li>
+            <strong>{{ inv.code }}</strong> — {{ inv.structure }}
+            ({{ inv.get_status_display }})
+            <ul>
+              {% for item in inv.items.all %}
+                <li>{{ item.ore_type_name|default:item.ore_type_id }}: {{ item.units_owed|intcomma }}{% with alt=item.compressed_alternative %}{% if alt %} <span class="text-muted">({% translate "or" %} {{ alt.units|intcomma }} {{ alt.name }})</span>{% endif %}{% endwith %}</li>
+              {% endfor %}
+            </ul>
+          </li>
+        {% endfor %}
+      </ul>
+    </div>
+  {% endif %}
+
+<div class="row">
+
+  <!-- Left column -->
+  <div class="col-xl-6">
+
+    <h4>{% translate "Moons" %}</h4>
+    <table class="table table-sm table-striped moontax-datatable" data-order-col="2" data-order-dir="asc">
+      <thead><tr><th>{% translate "Structure" %}</th><th>{% translate "Moon" %}</th><th>{% translate "Next pop" %}</th></tr></thead>
+      <tbody>
+        {% for row in structures %}
+          <tr>
+            <td>{{ row.structure }}</td>
+            <td>{{ row.moon|default:"—" }}</td>
+            <td data-order="{{ row.next_pop_sort }}">{{ row.next_pop_label }}{% if row.next_pop_at %} <span class="text-muted">({{ row.next_pop_at|date:"Y-m-d H:i" }})</span>{% endif %}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <h4>{% translate "What you mined (last 60 days)" %}</h4>
+    <table class="table table-sm table-striped moontax-datatable">
+      <thead><tr><th>{% translate "Pop date" %}</th><th>{% translate "Moon / Structure" %}</th><th>{% translate "Ore" %}</th><th>{% translate "Units" %}</th></tr></thead>
+      <tbody>
+        {% for pop in mined_pops %}
+          <tr>
+            <td>{{ pop.date }}</td>
+            <td>{% if pop.moon %}{{ pop.moon }}<br><span class="text-muted small">{{ pop.structure }}</span>{% else %}{{ pop.structure }}{% endif %}</td>
+            <td>{% for ore in pop.ores %}{{ ore.name }}{% if not forloop.last %}<br>{% endif %}{% endfor %}</td>
+            <td>{% for ore in pop.ores %}{{ ore.units|intcomma }}{% if not forloop.last %}<br>{% endif %}{% endfor %}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+  </div>
+
+  <!-- Right column -->
+  <div class="col-xl-6">
+
+    {% if pop_charts %}
+    <h4>{% translate "Your mining by pop" %}</h4>
+    <div class="card mb-4">
+      <div class="card-body">
+        <div class="d-flex align-items-center gap-2 mb-2">
+          <button id="popPrevBtn" class="btn btn-sm btn-outline-secondary" disabled>&#8592; {% translate "Prev" %}</button>
+          <button id="popNextBtn" class="btn btn-sm btn-outline-secondary" disabled>{% translate "Next" %} &#8594;</button>
+          <span id="popLabel" class="ms-2 text-muted small"></span>
+        </div>
+        <div style="max-width: 420px;">
+          <canvas id="popPieChart"></canvas>
+        </div>
+      </div>
+    </div>
+
+    {{ pop_charts|json_script:"pop-charts-data" }}
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+    <script>
+      $(function () {
+        if (typeof Chart === 'undefined') { return; }
+
+        var pops = JSON.parse(document.getElementById('pop-charts-data').textContent);
+        if (!pops || pops.length === 0) { return; }
+
+        var idx = 0;
+        var COLORS = [
+          '#4e79a7','#f28e2b','#e15759','#76b7b2','#59a14f',
+          '#edc948','#b07aa1','#ff9da7','#9c755f','#bab0ac'
+        ];
+
+        var ctx = document.getElementById('popPieChart').getContext('2d');
+        var chart = new Chart(ctx, {
+          type: 'doughnut',
+          data: {
+            labels: pops[0].labels,
+            datasets: [{
+              data: pops[0].data,
+              backgroundColor: COLORS.slice(0, pops[0].labels.length)
+            }]
+          },
+          options: {
+            responsive: true,
+            plugins: {
+              legend: { position: 'bottom' },
+              tooltip: {
+                callbacks: {
+                  label: function (context) {
+                    var total = context.dataset.data.reduce(function (a, b) { return a + b; }, 0);
+                    var pct = total > 0 ? (context.parsed / total * 100).toFixed(1) : 0;
+                    return context.label + ': ' + context.parsed.toLocaleString() + ' units (' + pct + '%)';
+                  }
+                }
+              }
+            }
+          }
+        });
+
+        function popHeader(pop) {
+          var label = pop.structure;
+          if (pop.moon) { label += ' — ' + pop.moon; }
+          label += ' (' + pop.date + ')';
+          return label;
+        }
+
+        function updateButtons() {
+          document.getElementById('popPrevBtn').disabled = (idx <= 0);
+          document.getElementById('popNextBtn').disabled = (idx >= pops.length - 1);
+        }
+
+        function render(i) {
+          var pop = pops[i];
+          document.getElementById('popLabel').textContent = popHeader(pop);
+          chart.data.labels = pop.labels;
+          chart.data.datasets[0].data = pop.data;
+          chart.data.datasets[0].backgroundColor = COLORS.slice(0, pop.labels.length);
+          chart.update();
+          updateButtons();
+        }
+
+        render(0);
+
+        document.getElementById('popPrevBtn').addEventListener('click', function () {
+          if (idx > 0) { idx--; render(idx); }
+        });
+        document.getElementById('popNextBtn').addEventListener('click', function () {
+          if (idx < pops.length - 1) { idx++; render(idx); }
+        });
+      });
+    </script>
+    {% endif %}
+
+    <h4>{% translate "Your invoices" %}</h4>
+    <table class="table table-sm table-striped moontax-datatable">
+      <thead><tr><th>{% translate "Code" %}</th><th>{% translate "Structure" %}</th><th>{% translate "Ore owed" %}</th><th>{% translate "Status" %}</th><th>{% translate "Emitted" %}</th><th>{% translate "Paid" %}</th></tr></thead>
+      <tbody>
+        {% for inv in all_invoices %}
+          <tr>
+            <td>{{ inv.code }}</td>
+            <td>{{ inv.structure }}</td>
+            <td>
+              {% for item in inv.items.all %}{{ item.ore_type_name|default:item.ore_type_id }}: {{ item.units_owed|intcomma }}{% with alt=item.compressed_alternative %}{% if alt %} <span class="text-muted">({% translate "or" %} {{ alt.units|intcomma }} {{ alt.name }})</span>{% endif %}{% endwith %}{% if not forloop.last %}<br>{% endif %}{% endfor %}
+            </td>
+            <td>{{ inv.get_status_display }}</td>
+            <td>{{ inv.emitted_at|date:"Y-m-d" }}</td>
+            <td>{{ inv.paid_at|date:"Y-m-d"|default:"—" }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+  </div>
+
+</div>
+
+{% endblock %}
