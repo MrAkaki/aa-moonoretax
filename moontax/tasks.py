@@ -78,31 +78,73 @@ def _as_date(value):
     return dt.date.fromisoformat(str(value)[:10])
 
 
-def _corp_context():
-    """Return ``(token, corporation_id)`` or ``(None, None)``, flagging a broken token."""
+def _mining_context():
+    """Return ``(mining_token, mining_corp_id)`` from config/TokenConfig; no gating here."""
     cfg = Configuration.get_solo()
-    token = providers.get_corp_token()
-    if token is None:
-        _mark_token_broken("No valid corp token with the required scopes.")
-        return None, None
-    corp_id = cfg.target_corporation_id
+    token = providers.get_mining_token()
+    corp_id = cfg.mining_corporation_id
     if not corp_id:
-        tc = TokenConfig.get_solo()
+        tc = TokenConfig.get_for_role(TokenConfig.MINING)
         corp_id = tc.corporation_id if tc else None
     return token, corp_id
 
 
-def _mark_token_broken(reason: str):
-    tc = TokenConfig.get_solo()
+def _payment_context():
+    """Return ``(payment_token, payment_corp_id)`` from config/TokenConfig; no gating here."""
+    cfg = Configuration.get_solo()
+    token = providers.get_payment_token()
+    corp_id = cfg.payment_corporation_id
+    if not corp_id:
+        tc = TokenConfig.get_for_role(TokenConfig.PAYMENT)
+        corp_id = tc.corporation_id if tc else None
+    return token, corp_id
+
+
+def _require_both_ready():
+    """Gate for ESI-collection tasks: both tokens and both corp ids must be set.
+
+    Returns ``(mining_token, mining_corp_id, payment_token, payment_corp_id)`` only
+    when everything is available.  If either side is broken, marks that side's
+    ``TokenConfig`` invalid, notifies plugin admins, and returns ``None`` so the
+    calling task can bail out early.
+    """
+    mining_token, mining_corp_id = _mining_context()
+    payment_token, payment_corp_id = _payment_context()
+
+    ok = True
+
+    if mining_token is None or not mining_corp_id:
+        reason = "No valid mining-corp token with the required scopes."
+        _mark_token_broken(reason, TokenConfig.MINING)
+        ok = False
+
+    if payment_token is None or not payment_corp_id:
+        reason = "No valid payment-corp token with the required scopes."
+        _mark_token_broken(reason, TokenConfig.PAYMENT)
+        ok = False
+
+    if not ok:
+        return None
+
+    return mining_token, mining_corp_id, payment_token, payment_corp_id
+
+
+def _mark_token_broken(reason: str, role: str | None = None):
+    """Mark the given role's ``TokenConfig`` invalid and notify plugin admins."""
+    tc = (
+        TokenConfig.get_for_role(role)
+        if role
+        else None
+    )
     if tc and tc.is_valid:
         tc.is_valid = False
         tc.last_error = reason
         tc.save(update_fields=["is_valid", "last_error", "updated_at"])
-    logger.warning("moontax: corp token broken: %s", reason)
+    logger.warning("moontax: %s token broken: %s", role or "corp", reason)
     try:
         from moontax import notifications
 
-        notifications.notify_token_broken(reason)
+        notifications.notify_token_broken(reason, role)
     except Exception:  # noqa: BLE001 - notifications must never break collection
         logger.exception("moontax: failed to notify admins of broken token")
 
@@ -216,9 +258,10 @@ def update_ore_catalog():
 @shared_task(**_RETRY)
 def update_structures():
     """Refresh corp structures: fuel, Moon Drilling service state, names."""
-    token, corp_id = _corp_context()
-    if not corp_id:
+    ctx = _require_both_ready()
+    if ctx is None:
         return
+    token, corp_id, _payment_token, _payment_corp_id = ctx
     if not _lock("update_structures"):
         return
     try:
@@ -272,9 +315,10 @@ def update_structures():
 @shared_task(**_RETRY)
 def update_extractions():
     """Refresh the scheduled-extraction list (chunk arrival / natural decay times)."""
-    token, corp_id = _corp_context()
-    if not corp_id:
+    ctx = _require_both_ready()
+    if ctx is None:
         return
+    token, corp_id, _payment_token, _payment_corp_id = ctx
     if not _lock("update_extractions"):
         return
     try:
@@ -348,9 +392,10 @@ def update_extractions():
 @shared_task(**_RETRY)
 def update_ledger():
     """Pull every observer ledger and upsert rows (cumulative overwrite; never sum)."""
-    token, corp_id = _corp_context()
-    if not corp_id:
+    ctx = _require_both_ready()
+    if ctx is None:
         return
+    token, corp_id, _payment_token, _payment_corp_id = ctx
     if not _lock("update_ledger"):
         return
     try:
@@ -397,9 +442,10 @@ def update_ledger():
 @shared_task(**_RETRY)
 def poll_notifications():
     """Read corp moon notifications; apply extraction-started + pop events once each."""
-    token, corp_id = _corp_context()
-    if not corp_id:
+    ctx = _require_both_ready()
+    if ctx is None:
         return
+    token, corp_id, _payment_token, _payment_corp_id = ctx
     if not _lock("poll_notifications"):
         return
     try:
@@ -542,17 +588,18 @@ def _apply_fracture(note, ntype) -> bool:
 
 @shared_task(**_RETRY)
 def update_contracts():
-    """Land corp item-exchange contracts, then run reconciliation against invoices."""
-    token, corp_id = _corp_context()
-    if not corp_id:
+    """Land payment-corp item-exchange contracts, then run reconciliation against invoices."""
+    ctx = _require_both_ready()
+    if ctx is None:
         return
+    _mining_token, _mining_corp_id, payment_token, payment_corp_id = ctx
     if not _lock("update_contracts"):
         return
     try:
         from moontax.core import reconcile
 
-        contracts = providers.corp_contracts(token, corp_id)
-        reconcile.ingest_and_reconcile(token, corp_id, contracts)
+        contracts = providers.corp_contracts(payment_token, payment_corp_id)
+        reconcile.ingest_and_reconcile(payment_token, payment_corp_id, contracts)
     finally:
         _unlock("update_contracts")
 

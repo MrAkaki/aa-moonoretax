@@ -3,7 +3,7 @@
 Schema groups:
 - **Config & token:** ``Configuration`` (operator singleton), ``OreTaxRate``,
   ``OreType`` (ESI-sourced moon-ore catalog for the Admin dropdown),
-  ``TokenConfig`` (the single corp token).
+  ``TokenConfig`` (one row per role: ``"mining"`` and ``"payment"``).
 - **Universe:** ``Moon``, ``Structure``, ``EveName`` (id→name resolution cache).
 - **Mining data:** ``MiningLedger`` (cumulative-quantity upsert), ``UnmatchedMiner``,
   ``Extraction`` (a moon pop), ``MoonPopSummary`` (finalized-pop totals snapshot),
@@ -85,15 +85,21 @@ class Configuration(models.Model):
         default=app_settings.MOONTAX_DEFAULT_TABLE_PAGE_SIZE,
         help_text="Default number of rows per page in dashboard/staff/admin tables.",
     )
-    target_corporation_id = models.BigIntegerField(null=True, blank=True)
-    target_corporation_name = models.CharField(max_length=255, blank=True)
+    mining_corporation_id = models.BigIntegerField(null=True, blank=True)
+    mining_corporation_name = models.CharField(max_length=255, blank=True)
+    payment_corporation_id = models.BigIntegerField(null=True, blank=True)
+    payment_corporation_name = models.CharField(max_length=255, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         verbose_name = "configuration"
 
     def __str__(self) -> str:
-        return f"Moon Ore Tax configuration (corp {self.target_corporation_id})"
+        return (
+            f"Moon Ore Tax configuration "
+            f"(mining corp {self.mining_corporation_id}, "
+            f"payment corp {self.payment_corporation_id})"
+        )
 
     def save(self, *args, **kwargs):
         self.pk = 1
@@ -156,8 +162,22 @@ class OreType(models.Model):
 
 
 class TokenConfig(models.Model):
-    """The single corp ESI token (added by a Director/CEO). One row (pk=1)."""
+    """One ESI Director/CEO token per corp role (``"mining"`` and ``"payment"``).
 
+    Two rows are expected at runtime — one with ``role="mining"`` (used for
+    structures, ledger, extractions, and notifications) and one with
+    ``role="payment"`` (used for corp-contract reconciliation).  Use
+    :meth:`get_for_role` to retrieve a specific row.
+    """
+
+    MINING = "mining"
+    PAYMENT = "payment"
+    ROLE_CHOICES = [
+        (MINING, "Mining corp"),
+        (PAYMENT, "Payment corp"),
+    ]
+
+    role = models.CharField(max_length=16, choices=ROLE_CHOICES, unique=True)
     token = models.ForeignKey(
         "esi.Token", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
     )
@@ -182,15 +202,15 @@ class TokenConfig(models.Model):
         verbose_name = "token configuration"
 
     def __str__(self) -> str:
-        return f"Corp token: {self.character_name or 'unset'} ({self.corporation_name})"
-
-    def save(self, *args, **kwargs):
-        self.pk = 1
-        super().save(*args, **kwargs)
+        return (
+            f"Corp token [{self.role}]: "
+            f"{self.character_name or 'unset'} ({self.corporation_name})"
+        )
 
     @classmethod
-    def get_solo(cls) -> "TokenConfig | None":
-        return cls.objects.filter(pk=1).first()
+    def get_for_role(cls, role: str) -> "TokenConfig | None":
+        """Return the ``TokenConfig`` for the given role, or ``None`` if absent."""
+        return cls.objects.filter(role=role).first()
 
 
 # --------------------------------------------------------------------------------------

@@ -1,7 +1,14 @@
 """ESI access, isolated here so tasks/validation are easy to mock.
 
-One corp token drives every call (stored on :class:`~moontax.models.TokenConfig`). Each
-public function wraps a single ESI operation; the tasks layer orchestrates them.
+Two corp tokens drive ESI calls, one per role (stored as :class:`~moontax.models.TokenConfig`
+rows keyed by :attr:`~moontax.models.TokenConfig.role`):
+
+- **Mining token** — used for structures, mining observers/ledgers, extractions, and
+  character notifications.  Requires :data:`MINING_SCOPES`.
+- **Payment token** — used for corp-contract reconciliation.  Requires
+  :data:`PAYMENT_SCOPES`.
+
+Each public function wraps a single ESI operation; the tasks layer orchestrates them.
 
 **Path quirk (do not "fix"):** the mining endpoints use the **singular** ``/corporation/``
 path → operation ids ``GetCorporationCorporationId…`` under the **Industry** tag.
@@ -92,28 +99,52 @@ def _result(operation):
 # Token retrieval
 # --------------------------------------------------------------------------------------
 
-# Scopes the corp token must carry (Requirements §2).
-REQUIRED_SCOPES = [
+# Scopes required for the mining-corp Director/CEO token (structures, ledger,
+# extractions, notifications, universe structure info).
+MINING_SCOPES = [
     "esi-industry.read_corporation_mining.v1",
     "esi-corporations.read_structures.v1",
-    "esi-contracts.read_corporation_contracts.v1",
     "esi-universe.read_structures.v1",
     "esi-characters.read_notifications.v1",
 ]
 
+# Scopes required for the payment-corp Director/CEO token (contracts,
+# universe structure info for location resolution).
+PAYMENT_SCOPES = [
+    "esi-contracts.read_corporation_contracts.v1",
+    "esi-universe.read_structures.v1",
+]
 
-def get_corp_token():
-    """The single configured corp token, validated for scopes; ``None`` if unusable."""
+
+def get_mining_token():
+    """Mining-corp token validated for :data:`MINING_SCOPES`; ``None`` if unusable."""
     from moontax.models import TokenConfig
 
-    cfg = TokenConfig.get_solo()
+    cfg = TokenConfig.get_for_role(TokenConfig.MINING)
     if not cfg or not cfg.token_id:
         return None
     from esi.models import Token
 
     return (
         Token.objects.filter(pk=cfg.token_id)
-        .require_scopes(REQUIRED_SCOPES)
+        .require_scopes(MINING_SCOPES)
+        .require_valid()
+        .first()
+    )
+
+
+def get_payment_token():
+    """Payment-corp token validated for :data:`PAYMENT_SCOPES`; ``None`` if unusable."""
+    from moontax.models import TokenConfig
+
+    cfg = TokenConfig.get_for_role(TokenConfig.PAYMENT)
+    if not cfg or not cfg.token_id:
+        return None
+    from esi.models import Token
+
+    return (
+        Token.objects.filter(pk=cfg.token_id)
+        .require_scopes(PAYMENT_SCOPES)
         .require_valid()
         .first()
     )
@@ -282,13 +313,24 @@ def _is_forbidden(exc) -> bool:
     return "403" in str(exc) or "forbidden" in str(exc).lower()
 
 
-def validate_token(token, target_corporation_id: int | None = None) -> ValidationResult:
-    """Confirm the token character holds Director/CEO in the target corp.
+def validate_token(
+    token,
+    expected_corporation_id: int | None = None,
+    *,
+    role: str = "mining",
+) -> ValidationResult:
+    """Confirm the token character holds Director/CEO in the expected corp.
 
     The required scopes do not include corp roles, so we validate **operationally**
-    (Requirements §2/§7): the character's corp must match the target, and the
-    corp-structures call must succeed (a 403 means the in-game Director/Station-Manager
-    role was lost). CEO is additionally confirmed via the corp's ``ceo_id``.
+    (Requirements §2/§7): the character's corp must match ``expected_corporation_id``
+    (when supplied), and a role-appropriate ESI call must succeed (a 403 means the
+    in-game Director/Station-Manager role was lost). CEO is additionally confirmed via
+    the corp's ``ceo_id``.
+
+    Role-specific decisive check:
+    - ``"mining"`` → :func:`corp_structures` (requires structures scope + Director role).
+    - ``"payment"`` → :func:`corp_contracts` (requires contracts scope + Director role;
+      the payment token need not carry the structures scope).
     """
     try:
         char = character_info(token.character_id)
@@ -299,14 +341,14 @@ def validate_token(token, target_corporation_id: int | None = None) -> Validatio
     corp_id = _g(char, "corporation_id")
     char_name = _g(char, "name", "")
 
-    if target_corporation_id and corp_id != target_corporation_id:
+    if expected_corporation_id and corp_id != expected_corporation_id:
         return ValidationResult(
             False,
             corporation_id=corp_id,
             character_name=char_name,
             reason=(
                 f"Token character is in corp {corp_id}, "
-                f"not the target corp {target_corporation_id}."
+                f"not the expected corp {expected_corporation_id}."
             ),
         )
 
@@ -319,26 +361,33 @@ def validate_token(token, target_corporation_id: int | None = None) -> Validatio
     except Exception as exc:  # noqa: BLE001 - non-fatal; name/ceo are informational
         logger.info("moontax token validation: corp lookup failed: %s", exc)
 
-    # The decisive check: can this token read corp structures?
+    # The decisive check: can this token perform the role-appropriate ESI call?
+    # Mining tokens are verified via corp-structures (403 ⇒ no Director role).
+    # Payment tokens are verified via corp-contracts (structures scope not required).
     try:
-        corp_structures(token, corp_id)
+        if role == "payment":
+            corp_contracts(token, corp_id)
+        else:
+            corp_structures(token, corp_id)
     except Exception as exc:  # noqa: BLE001
         if _is_forbidden(exc):
+            endpoint = "corp-contracts" if role == "payment" else "corp-structures"
             return ValidationResult(
                 False,
                 corporation_id=corp_id,
                 corporation_name=corp_name,
                 character_name=char_name,
                 is_ceo=is_ceo,
-                reason="No corp-structures access (Director/CEO role lost or never held).",
+                reason=f"No {endpoint} access (Director/CEO role lost or never held).",
             )
+        check_name = "Contracts check" if role == "payment" else "Structures check"
         return ValidationResult(
             False,
             corporation_id=corp_id,
             corporation_name=corp_name,
             character_name=char_name,
             is_ceo=is_ceo,
-            reason=f"Structures check failed: {exc}",
+            reason=f"{check_name} failed: {exc}",
         )
 
     return ValidationResult(

@@ -3,7 +3,7 @@
 A contract matches an invoice only when **all** hold:
 - the invoice **code** appears in the contract ``title``,
 - ``issuer_id`` is one of the invoice player's characters,
-- ``assignee_id == target corp`` and ``type == item_exchange``.
+- ``assignee_id == payment corp`` and ``type == item_exchange``.
 
 Status mapping → invoice:
 - ``outstanding`` / ``in_progress`` → ``payment_sent`` (+ mismatch check while pending),
@@ -44,11 +44,15 @@ def _g(obj, key, default=None):
 
 
 def ingest_and_reconcile(token, corp_id: int, contracts) -> None:
-    """Persist relevant corp contracts and apply §6 matching/status transitions."""
+    """Persist relevant payment-corp contracts and apply §6 matching/status transitions.
+
+    ``corp_id`` is the **payment** corporation id; the ``assignee_id == corp_id``
+    filter ensures we only process contracts addressed to the payment corp.
+    """
     for raw in contracts:
         if _g(raw, "type") != ITEM_EXCHANGE:
             continue
-        if _g(raw, "assignee_id") != corp_id:
+        if _g(raw, "assignee_id") != corp_id:  # assignee_id == payment corp
             continue
         _reconcile_one(token, corp_id, raw)
 

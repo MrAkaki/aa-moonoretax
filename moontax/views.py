@@ -384,7 +384,8 @@ def staff_action(request, invoice_id):
 @admin_access_required
 def admin_config(request):
     config = Configuration.get_solo()
-    token = TokenConfig.get_solo()
+    mining_token = TokenConfig.get_for_role(TokenConfig.MINING)
+    payment_token = TokenConfig.get_for_role(TokenConfig.PAYMENT)
     if request.method == "POST" and request.POST.get("form") == "config":
         form = ConfigurationForm(request.POST, instance=config)
         if form.is_valid():
@@ -417,7 +418,8 @@ def admin_config(request):
         "rate_form": rate_form,
         "ore_rates": OreTaxRate.objects.all(),
         "ore_catalog_empty": not OreType.objects.exists(),
-        "token": token,
+        "mining_token": mining_token,
+        "payment_token": payment_token,
         "table_page_size": config.table_page_size,
     }
     return render(request, "moontax/admin.html", context)
@@ -432,22 +434,22 @@ def ore_rate_delete(request, rate_id):
 
 
 @admin_access_required
-@token_required(scopes=providers.REQUIRED_SCOPES)
-def token_setup(request, token):
-    """SSO callback: validate the new token is Director/CEO, then store it.
+@token_required(scopes=providers.MINING_SCOPES)
+def token_setup_mining(request, token):
+    """SSO callback: validate a Director/CEO token for the mining corp, then store it.
 
-    The target corporation is taken from the token's own corp — it is not entered by
+    The mining corporation is taken from the token's own corp — it is not entered by
     hand — so we validate Director/CEO for whatever corp the token character is in and
-    adopt that corp as the plugin's target.
+    adopt that corp as the plugin's mining corporation.
     """
     config = Configuration.get_solo()
-    result = providers.validate_token(token, target_corporation_id=None)
+    result = providers.validate_token(token, expected_corporation_id=None, role="mining")
     if not result.ok:
-        messages.error(request, f"Token rejected: {result.reason}")
+        messages.error(request, f"Mining token rejected: {result.reason}")
         return redirect("moontax:admin")
 
     TokenConfig.objects.update_or_create(
-        pk=1,
+        role=TokenConfig.MINING,
         defaults={
             "token": token,
             "character_id": token.character_id,
@@ -460,14 +462,15 @@ def token_setup(request, token):
             "last_error": "",
         },
     )
-    # Always adopt the token's corp as the plugin target (derived, never hand-entered).
+    # Adopt the token's corp as the mining corporation (derived, never hand-entered).
     if result.corporation_id:
-        config.target_corporation_id = result.corporation_id
-        config.target_corporation_name = result.corporation_name
-        config.save(update_fields=["target_corporation_id", "target_corporation_name", "updated_at"])
+        config.mining_corporation_id = result.corporation_id
+        config.mining_corporation_name = result.corporation_name
+        config.save(update_fields=["mining_corporation_id", "mining_corporation_name", "updated_at"])
 
     messages.success(
-        request, f"Corp token saved for {result.character_name} ({result.corporation_name})."
+        request,
+        f"Mining corp token saved for {result.character_name} ({result.corporation_name}).",
     )
     # Kick off the first-setup backfill.
     from moontax.tasks import backfill
@@ -477,10 +480,57 @@ def token_setup(request, token):
 
 
 @admin_access_required
-def token_remove(request):
+@token_required(scopes=providers.PAYMENT_SCOPES)
+def token_setup_payment(request, token):
+    """SSO callback: validate a Director/CEO token for the payment corp, then store it.
+
+    The payment corporation is taken from the token's own corp — it is not entered by
+    hand — so we validate Director/CEO for whatever corp the token character is in and
+    adopt that corp as the plugin's payment corporation.
+    """
+    config = Configuration.get_solo()
+    result = providers.validate_token(token, expected_corporation_id=None, role="payment")
+    if not result.ok:
+        messages.error(request, f"Payment token rejected: {result.reason}")
+        return redirect("moontax:admin")
+
+    TokenConfig.objects.update_or_create(
+        role=TokenConfig.PAYMENT,
+        defaults={
+            "token": token,
+            "character_id": token.character_id,
+            "character_name": result.character_name or token.character_name,
+            "corporation_id": result.corporation_id,
+            "corporation_name": result.corporation_name,
+            "added_by": request.user,
+            "is_valid": True,
+            "last_validated": timezone.now(),
+            "last_error": "",
+        },
+    )
+    # Adopt the token's corp as the payment corporation (derived, never hand-entered).
+    if result.corporation_id:
+        config.payment_corporation_id = result.corporation_id
+        config.payment_corporation_name = result.corporation_name
+        config.save(update_fields=["payment_corporation_id", "payment_corporation_name", "updated_at"])
+
+    messages.success(
+        request,
+        f"Payment corp token saved for {result.character_name} ({result.corporation_name}).",
+    )
+    # Kick off the first-setup backfill.
+    from moontax.tasks import backfill
+
+    backfill.delay()
+    return redirect("moontax:admin")
+
+
+@admin_access_required
+def token_remove(request, role):
+    """Remove the ``TokenConfig`` for the given ``role`` path kwarg."""
     if request.method == "POST":
-        tc = TokenConfig.get_solo()
+        tc = TokenConfig.get_for_role(role)
         if tc:
             tc.delete()
-        messages.success(request, "Corp token removed.")
+        messages.success(request, f"{role.capitalize()} corp token removed.")
     return redirect("moontax:admin")

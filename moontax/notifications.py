@@ -139,13 +139,26 @@ def _wants(user, flag: str) -> bool:
         return True
 
 
+def _payment_corp_name() -> str:
+    """Human-readable name of the payment corporation, or an empty string."""
+    try:
+        cfg = Configuration.get_solo()
+        return cfg.payment_corporation_name or ""
+    except Exception:  # noqa: BLE001 - never crash a notification
+        return ""
+
+
 def notify_invoice(invoice: Invoice) -> None:
     """On invoice calculation: DM the player the taxed-ore details + the code."""
     if not _wants(invoice.user, "invoice_emitted"):
         return
     url = _dashboard_url()
-    tail = f"\n\nPay in ore via an item-exchange contract to the corp, with the code "
-    tail += f"`{invoice.code}` in the contract title."
+    corp_name = _payment_corp_name()
+    corp_label = f" **{corp_name}**" if corp_name else ""
+    tail = (
+        f"\n\nPay in ore via an item-exchange contract to the payment corp{corp_label}, "
+        f"with the code `{invoice.code}` in the contract title."
+    )
     if url:
         tail += f"\nDetails: {url}"
     message = (
@@ -167,15 +180,21 @@ def notify_mismatch(invoice: Invoice, expected, submitted, pc=None) -> None:
     deliver(invoice.user, "Contract mismatch", message, level="warning")
 
 
-def notify_token_broken(reason: str) -> None:
-    """Token broken/invalid: message everyone with plugin-admin privilege."""
+def notify_token_broken(reason: str, role: str | None = None) -> None:
+    """Token broken/invalid: message everyone with plugin-admin privilege.
+
+    ``role`` identifies which corp's token is broken (``"mining"`` or ``"payment"``).
+    When ``None`` the generic "corp token" label is used (legacy call-sites).
+    """
+    role_label = f"{role} corp" if role else "corp"
     message = (
-        "The Moon Ore Tax corp ESI token is broken or invalid and data collection has "
-        f"stopped.\n\nReason: {reason}\n\nA Director or CEO must re-add the token from the "
-        "Admin tab."
+        f"The Moon Ore Tax {role_label} ESI token is broken or invalid and data "
+        f"collection has stopped.\n\nReason: {reason}\n\nA Director or CEO must "
+        "re-add the token from the Admin tab."
     )
+    title = f"Moon Ore Tax: {role_label} token broken"
     for user in _admins():
-        deliver(user, "Moon Ore Tax: corp token broken", message, level="danger")
+        deliver(user, title, message, level="danger")
 
 
 def notify_moon_pop(extraction) -> None:
@@ -253,11 +272,13 @@ def send_due_reminders() -> int:
         ):
             continue
         age = (now - invoice.emitted_at).days
+        corp_name = _payment_corp_name()
+        corp_label = f" **{corp_name}**" if corp_name else ""
         message = (
             f"Reminder: moon-ore tax invoice **{invoice.code}** is still unpaid "
             f"({age} day(s) old).\n\nOre owed:\n{_ore_lines(_invoice_ore_map(invoice))}\n\n"
-            f"Pay in ore via an item-exchange contract to the corp with `{invoice.code}` "
-            f"in the title."
+            f"Pay in ore via an item-exchange contract to the payment corp{corp_label} "
+            f"with `{invoice.code}` in the title."
         )
         deliver(invoice.user, "Unpaid moon-ore tax invoice", message, level="warning")
         invoice.last_reminder_at = now

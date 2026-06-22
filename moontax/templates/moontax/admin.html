@@ -5,32 +5,64 @@
 
 {% block moontax_content %}
 
-  <h4>{% translate "Corp token" %}</h4>
+  <h4>{% translate "Mining corp token" %}</h4>
   <div class="card mb-4"><div class="card-body">
-    {% if token and token.token_id %}
+    {% if mining_token and mining_token.token_id %}
       <p>
         {% translate "Current token" %}:
-        <strong>{{ token.character_name }}</strong> — {{ token.corporation_name }}
-        {% if token.is_valid %}
+        <strong>{{ mining_token.character_name }}</strong> — {{ mining_token.corporation_name }}
+        {% if mining_token.is_valid %}
           <span class="badge bg-success">{% translate "valid" %}</span>
         {% else %}
           <span class="badge bg-danger">{% translate "broken" %}</span>
-          <span class="text-muted small">{{ token.last_error }}</span>
+          <span class="text-muted small">{{ mining_token.last_error }}</span>
         {% endif %}
       </p>
       <p class="mb-0 text-muted">
-        {% translate "Target corporation" %} ({% translate "from the token" %}):
-        <strong>{{ config.target_corporation_name|default:config.target_corporation_id|default:"—" }}</strong>
-        {% if config.target_corporation_id %}<span class="small">(id {{ config.target_corporation_id }})</span>{% endif %}
+        {% translate "Mining corporation" %} ({% translate "from the token" %}):
+        <strong>{{ config.mining_corporation_name|default:config.mining_corporation_id|default:"—" }}</strong>
+        {% if config.mining_corporation_id %}<span class="small">(id {{ config.mining_corporation_id }})</span>{% endif %}
       </p>
     {% else %}
-      <p class="text-muted">{% translate "No corp token configured. A Director or CEO must add one." %}</p>
+      <p class="text-muted">{% translate "No mining corp token configured. A Director or CEO must add one." %}</p>
     {% endif %}
-    <a class="btn btn-primary btn-sm" href="{% url 'moontax:token_setup' %}">
-      <i class="fas fa-key"></i> {% translate "Set up corp token" %}
+    <a class="btn btn-primary btn-sm" href="{% url 'moontax:token_setup_mining' %}">
+      <i class="fas fa-key"></i> {% translate "Set up mining corp token" %}
     </a>
-    {% if token and token.token_id %}
-      <form method="post" action="{% url 'moontax:token_remove' %}" class="d-inline">
+    {% if mining_token and mining_token.token_id %}
+      <form method="post" action="{% url 'moontax:token_remove' 'mining' %}" class="d-inline">
+        {% csrf_token %}
+        <button class="btn btn-outline-danger btn-sm">{% translate "Remove token" %}</button>
+      </form>
+    {% endif %}
+  </div></div>
+
+  <h4>{% translate "Payment corp token" %}</h4>
+  <div class="card mb-4"><div class="card-body">
+    {% if payment_token and payment_token.token_id %}
+      <p>
+        {% translate "Current token" %}:
+        <strong>{{ payment_token.character_name }}</strong> — {{ payment_token.corporation_name }}
+        {% if payment_token.is_valid %}
+          <span class="badge bg-success">{% translate "valid" %}</span>
+        {% else %}
+          <span class="badge bg-danger">{% translate "broken" %}</span>
+          <span class="text-muted small">{{ payment_token.last_error }}</span>
+        {% endif %}
+      </p>
+      <p class="mb-0 text-muted">
+        {% translate "Payment corporation" %} ({% translate "from the token" %}):
+        <strong>{{ config.payment_corporation_name|default:config.payment_corporation_id|default:"—" }}</strong>
+        {% if config.payment_corporation_id %}<span class="small">(id {{ config.payment_corporation_id }})</span>{% endif %}
+      </p>
+    {% else %}
+      <p class="text-muted">{% translate "No payment corp token configured. A Director or CEO must add one." %}</p>
+    {% endif %}
+    <a class="btn btn-primary btn-sm" href="{% url 'moontax:token_setup_payment' %}">
+      <i class="fas fa-key"></i> {% translate "Set up payment corp token" %}
+    </a>
+    {% if payment_token and payment_token.token_id %}
+      <form method="post" action="{% url 'moontax:token_remove' 'payment' %}" class="d-inline">
         {% csrf_token %}
         <button class="btn btn-outline-danger btn-sm">{% translate "Remove token" %}</button>
       </form>

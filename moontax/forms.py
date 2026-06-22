@@ -8,8 +8,9 @@ from moontax.models import Configuration, NotificationSetting, OreTaxRate, OreTy
 class ConfigurationForm(forms.ModelForm):
     class Meta:
         model = Configuration
-        # target_corporation is intentionally omitted: it is derived automatically from
-        # the registered corp token (the token character's corporation), not typed in.
+        # mining_corporation_* and payment_corporation_* are intentionally omitted:
+        # they are derived automatically from the registered corp tokens (the token
+        # character's corporation for each role), not typed in.
         fields = [
             "default_tax_rate",
             "despawn_hours",

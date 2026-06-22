@@ -16,7 +16,10 @@ from moontax.tests.helpers import (
 )
 
 UTC = dt.timezone.utc
+# CORP is the payment corp id — assignee_id on all contracts sent to it.
 CORP = 2001
+# A different corp id (e.g. the mining corp); contracts assigned here must be ignored.
+OTHER_CORP = 9999
 ORE_A = 46300
 
 
@@ -94,6 +97,33 @@ class ReconcileTest(TestCase):
         self.invoice.refresh_from_db()
         self.assertEqual(self.invoice.status, Invoice.EMITTED)
         self.assertNotEqual(self.invoice.code, "MT-ABC123")
+
+    def test_contract_assigned_to_other_corp_is_ignored(self):
+        """A contract whose assignee_id is NOT the payment corp must be ignored.
+
+        Passing OTHER_CORP as the corp_id (the payment corp id for this run) means
+        the contract assigned to CORP (a different corp) should not match any invoice.
+        """
+        # Build a contract assigned to CORP (== 2001), but ingest it as if the
+        # payment corp is OTHER_CORP (== 9999).  The assignee_id check filters it out.
+        wrong_corp_contract = dict(
+            contract_id=5099,
+            type="item_exchange",
+            status="outstanding",
+            issuer_id=90001,
+            assignee_id=CORP,  # assigned to mining corp, not payment corp
+            title="pay MT-ABC123 thanks",
+            price=0,
+            reward=0,
+            volume=10.0,
+            start_location_id=60003760,
+            date_issued=dt.datetime(2026, 1, 11, tzinfo=UTC),
+        )
+        with mock.patch("moontax.providers.contract_items", return_value=[]):
+            reconcile.ingest_and_reconcile(None, OTHER_CORP, [wrong_corp_contract])
+        self.invoice.refresh_from_db()
+        # Invoice must remain EMITTED — the wrong-corp contract must not match it.
+        self.assertEqual(self.invoice.status, Invoice.EMITTED)
 
 
 # Compressed counterpart of ORE_A (same quality tier), per the ESI catalog naming.

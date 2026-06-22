@@ -47,13 +47,17 @@ def _started_note(note_id=NOTE_ID, structure_id=STRUCTURE_ID):
 
 class PollNotificationsDedupTest(TestCase):
     def setUp(self):
-        make_config(target_corporation_id=2001)
+        make_config(mining_corporation_id=2001, payment_corporation_id=2002)
         make_structure(structure_id=STRUCTURE_ID)
 
     def _poll(self, notes):
         """Run poll_notifications with collection mocked; return the moon-pop mock."""
+        _mining_token = object()
+        _payment_token = object()
         with mock.patch.object(
-            tasks.providers, "get_corp_token", return_value=object()
+            tasks.providers, "get_mining_token", return_value=_mining_token
+        ), mock.patch.object(
+            tasks.providers, "get_payment_token", return_value=_payment_token
         ), mock.patch.object(
             tasks.providers, "character_notifications", return_value=notes
         ), mock.patch.object(
