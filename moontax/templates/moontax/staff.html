@@ -75,10 +75,12 @@
     </table>
 
     <h4>{% translate "Moon pops" %}</h4>
-    <table class="table table-sm table-striped moontax-datatable">
+    {{ pop_ore_details|json_script:"moon-pop-ore-details" }}
+    <table id="moon-pops-table" class="table table-sm table-striped moontax-datatable">
       <thead>
         <tr>
-          <th>{% translate "Moon / Structure" %}</th>
+          <th>{% translate "Moon" %}</th>
+          <th>{% translate "Structure" %}</th>
           <th>{% translate "Popped" %}</th>
           <th>{% translate "Ore mined" %}</th>
           <th>{% translate "Expected taxes" %}</th>
@@ -88,8 +90,9 @@
       </thead>
       <tbody>
         {% for pop in moon_pops %}
-          <tr>
-            <td>{{ pop.moon|default:pop.structure }}</td>
+          <tr data-pop-id="{{ pop.pk }}" data-pop-moon="{{ pop.moon|default:"" }}" data-pop-structure="{{ pop.structure.name|default:pop.structure }}" style="cursor:pointer;">
+            <td>{{ pop.moon|default:"—" }}</td>
+            <td>{{ pop.structure.name|default:pop.structure }}</td>
             <td>{{ pop.finalized_at|date:"Y-m-d H:i"|default:"—" }}</td>
             <td>{{ pop.ore_mined_units|intcomma }}</td>
             <td>{{ pop.expected_total_taxes|intcomma }}</td>
@@ -99,6 +102,82 @@
         {% endfor %}
       </tbody>
     </table>
+
+    <!-- Moon Pop Ore Modal -->
+    <div class="modal fade" id="moonPopOreModal" tabindex="-1" aria-labelledby="moonPopOreModalLabel" aria-hidden="true">
+      <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title" id="moonPopOreModalLabel">{% translate "Ore mined in pop" %}</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{% translate "Close" %}"></button>
+          </div>
+          <div class="modal-body">
+            <table class="table table-sm table-striped mb-0">
+              <thead>
+                <tr>
+                  <th>{% translate "Ore" %}</th>
+                  <th class="text-end">{% translate "Units" %}</th>
+                </tr>
+              </thead>
+              <tbody id="moonPopOreModalBody">
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      (function () {
+        var rawEl = document.getElementById('moon-pop-ore-details');
+        var oreDetails = rawEl ? JSON.parse(rawEl.textContent) : {};
+
+        var tableBody = document.querySelector('#moon-pops-table tbody');
+        if (!tableBody) { return; }
+
+        tableBody.addEventListener('click', function (e) {
+          var tr = e.target.closest('tr[data-pop-id]');
+          if (!tr) { return; }
+
+          var popId = tr.getAttribute('data-pop-id');
+          var moon = tr.getAttribute('data-pop-moon') || '';
+          var structure = tr.getAttribute('data-pop-structure') || '';
+
+          var titleEl = document.getElementById('moonPopOreModalLabel');
+          if (moon) {
+            titleEl.textContent = moon + (structure ? ' — ' + structure : '');
+          } else if (structure) {
+            titleEl.textContent = structure;
+          } else {
+            titleEl.textContent = 'Pop #' + popId;
+          }
+
+          var ores = (oreDetails && oreDetails[popId]) ? oreDetails[popId] : [];
+          var tbody = document.getElementById('moonPopOreModalBody');
+          tbody.innerHTML = '';
+
+          if (ores.length === 0) {
+            var row = tbody.insertRow();
+            var cell = row.insertCell();
+            cell.colSpan = 2;
+            cell.className = 'text-muted text-center';
+            cell.textContent = '{% translate "No ore recorded for this pop" %}';
+          } else {
+            ores.forEach(function (ore) {
+              var row = tbody.insertRow();
+              var nameCell = row.insertCell();
+              nameCell.textContent = ore.name;
+              var unitsCell = row.insertCell();
+              unitsCell.className = 'text-end';
+              unitsCell.textContent = ore.units.toLocaleString();
+            });
+          }
+
+          var modalEl = document.getElementById('moonPopOreModal');
+          bootstrap.Modal.getOrCreateInstance(modalEl).show();
+        });
+      })();
+    </script>
 
     <h4>{% translate "Paid invoices" %}</h4>
     <table class="table table-sm table-striped moontax-datatable">

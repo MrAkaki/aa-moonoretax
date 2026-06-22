@@ -404,8 +404,21 @@ def poll_notifications():
         return
     try:
         notes = providers.character_notifications(token)
+        # ESI returns a rolling window of recent notifications, so the same ones
+        # come back every poll. Skip any we've already processed up front —
+        # otherwise we re-apply each extraction and re-send its moon-pop ping
+        # hourly. Unclaimed notifications (deferred via a False return below) are
+        # absent here and will be retried, which is what we want.
+        ids = [_g(n, "notification_id") for n in notes]
+        seen = set(
+            ProcessedNotification.objects.filter(notification_id__in=ids).values_list(
+                "notification_id", flat=True
+            )
+        )
         # Oldest-first so a chunk's "started" is applied before its "pop".
         for note in sorted(notes, key=lambda n: _g(n, "timestamp")):
+            if _g(note, "notification_id") in seen:
+                continue
             ntype = _g(note, "type")
             if ntype == STARTED:
                 if _apply_started(note):

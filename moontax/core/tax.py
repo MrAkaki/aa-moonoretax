@@ -241,3 +241,72 @@ def _notify_new_invoice(invoice: Invoice) -> None:
         notifications.notify_invoice(invoice)
     except Exception:  # noqa: BLE001 - notification must never block finalize
         logger.exception("moontax: failed to notify invoice %s", invoice.code)
+
+
+def pop_ore_breakdown(extraction: Extraction) -> list[dict]:
+    """Per-ore breakdown for a single pop (matched + unmatched), sorted by units desc.
+
+    Returns ``[{"type_id": int, "name": str, "units": int}, ...]``.
+
+    Uses the same observer_id / date-window filters as ``_write_pop_summary`` so the
+    unit totals reconcile with ``MoonPopSummary.ore_mined_units``.  Ore names are
+    resolved in bulk: OreType catalog first, then EveName, then str(type_id) as a
+    last resort.
+    """
+    from django.db.models import Sum
+
+    start, end = _attribution_window(extraction)
+
+    def _window(qs):
+        qs = qs.filter(observer_id=extraction.structure_id, recorded_date__gte=start)
+        if end is not None:
+            qs = qs.filter(recorded_date__lt=end)
+        return qs
+
+    # Aggregate per ore_type_id from matched ledger rows.
+    ledger_rows = (
+        _window(MiningLedger.objects)
+        .values("ore_type_id")
+        .annotate(units=Sum("quantity"))
+    )
+    # Aggregate per ore_type_id from unmatched miner rows.
+    unmatched_rows = (
+        _window(UnmatchedMiner.objects)
+        .values("ore_type_id")
+        .annotate(units=Sum("quantity"))
+    )
+
+    # Merge both sources into a single dict keyed by ore_type_id.
+    totals: dict[int, int] = defaultdict(int)
+    for row in ledger_rows:
+        if row["units"]:
+            totals[row["ore_type_id"]] += row["units"]
+    for row in unmatched_rows:
+        if row["units"]:
+            totals[row["ore_type_id"]] += row["units"]
+
+    if not totals:
+        return []
+
+    all_ore_ids = set(totals)
+
+    # Bulk name resolution: OreType catalog wins, EveName is fallback, str(id) is last resort.
+    ore_type_name_map: dict[int, str] = {
+        r["type_id"]: r["name"]
+        for r in OreType.objects.filter(type_id__in=all_ore_ids).values("type_id", "name")
+        if r["name"]
+    }
+    eve_name_fallback = EveName.objects.name_map(all_ore_ids - set(ore_type_name_map))
+    ore_name_map = {**eve_name_fallback, **ore_type_name_map}  # OreType wins
+
+    result = [
+        {
+            "type_id": tid,
+            "name": ore_name_map.get(tid, str(tid)),
+            "units": units,
+        }
+        for tid, units in totals.items()
+        if units > 0
+    ]
+    result.sort(key=lambda x: x["units"], reverse=True)
+    return result

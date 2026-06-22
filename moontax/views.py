@@ -300,6 +300,16 @@ def staff(request):
         "structure", "moon", "extraction"
     ).all()
 
+    # Build per-pop ore breakdown dict for the modal: str(pop.pk) → [{"name", "units"}, ...]
+    # Bulk-collect all ore type ids across all pops first, then do a single OreType + EveName
+    # lookup, and finally resolve names when assembling the breakdown per pop.
+    pop_ore_details: dict[str, list[dict]] = {}
+    for pop in moon_pops:
+        breakdown = tax.pop_ore_breakdown(pop.extraction)
+        pop_ore_details[str(pop.pk)] = [
+            {"name": entry["name"], "units": entry["units"]} for entry in breakdown
+        ]
+
     context = {
         "can_staff": True,
         "can_admin": can_admin(request.user),
@@ -309,6 +319,7 @@ def staff(request):
         "structures": _structure_rows(config),
         "unmatched": unmatched,
         "moon_pops": moon_pops,
+        "pop_ore_details": pop_ore_details,
         "action_form": StaffActionForm(),
         "table_page_size": config.table_page_size,
     }
