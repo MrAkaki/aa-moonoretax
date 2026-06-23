@@ -243,6 +243,41 @@ def _notify_new_invoice(invoice: Invoice) -> None:
         logger.exception("moontax: failed to notify invoice %s", invoice.code)
 
 
+def resolve_ore_names(type_ids) -> dict[int, str]:
+    """Bulk-resolve ore type ids to human names.
+
+    Resolution order (highest priority first):
+    1. OreType catalog (populated by ``moontax_load_ores``).
+    2. EveName cache.
+    3. ``str(type_id)`` as a last resort.
+
+    ``type_ids`` may be any iterable of ints or int-like values; all items are cast
+    to ``int`` before lookup so callers that got ids from a JSONField (where keys
+    load as strings) don't need to pre-convert.
+    """
+    ids: set[int] = {int(t) for t in type_ids}
+    if not ids:
+        return {}
+
+    ore_type_map: dict[int, str] = {
+        r["type_id"]: r["name"]
+        for r in OreType.objects.filter(type_id__in=ids).values("type_id", "name")
+        if r["name"]
+    }
+    remaining = ids - set(ore_type_map)
+    eve_fallback = EveName.objects.name_map(remaining) if remaining else {}
+    # Merge: OreType wins, then EveName, then str(id) for anything still missing.
+    result: dict[int, str] = {}
+    for tid in ids:
+        if tid in ore_type_map:
+            result[tid] = ore_type_map[tid]
+        elif tid in eve_fallback:
+            result[tid] = eve_fallback[tid]
+        else:
+            result[tid] = str(tid)
+    return result
+
+
 def pop_ore_breakdown(extraction: Extraction) -> list[dict]:
     """Per-ore breakdown for a single pop (matched + unmatched), sorted by units desc.
 
@@ -288,16 +323,7 @@ def pop_ore_breakdown(extraction: Extraction) -> list[dict]:
     if not totals:
         return []
 
-    all_ore_ids = set(totals)
-
-    # Bulk name resolution: OreType catalog wins, EveName is fallback, str(id) is last resort.
-    ore_type_name_map: dict[int, str] = {
-        r["type_id"]: r["name"]
-        for r in OreType.objects.filter(type_id__in=all_ore_ids).values("type_id", "name")
-        if r["name"]
-    }
-    eve_name_fallback = EveName.objects.name_map(all_ore_ids - set(ore_type_name_map))
-    ore_name_map = {**eve_name_fallback, **ore_type_name_map}  # OreType wins
+    ore_name_map = resolve_ore_names(set(totals))
 
     result = [
         {

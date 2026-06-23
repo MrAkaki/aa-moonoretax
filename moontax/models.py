@@ -581,9 +581,10 @@ class InvoiceItem(models.Model):
     def compressed_alternative(self) -> dict | None:
         """The "or pay compressed" option for this line, or None if there isn't one.
 
-        Returns ``{"type_id", "units", "name"}`` for the compressed equivalent (units
-        rounded down). None when the ore has no compressed form or the rounded-down
-        amount is zero (a line owing under one compressed unit must be paid in raw).
+        At the 1:1 compression ratio the compressed alternative exists for any line owing
+        at least 1 unit; the compressed unit count equals ``units_owed``. Returns
+        ``{"type_id", "units", "name"}`` for the compressed equivalent, or None when the
+        ore has no compressed form or the debt is zero.
         """
         from moontax.core import compression
 

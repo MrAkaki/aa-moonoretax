@@ -62,13 +62,35 @@
 
     <h4>{% translate "Structures" %}</h4>
     <table class="table table-sm moontax-datatable">
-      <thead><tr><th>{% translate "Structure" %}</th><th>{% translate "Fuel (days)" %}</th><th>{% translate "Next pop" %}</th></tr></thead>
+      <thead><tr><th>{% translate "Structure" %}</th><th>{% translate "Fuel (days)" %}</th><th>{% translate "Next pop" %}</th><th>{% translate "Expected ore" %}</th></tr></thead>
       <tbody>
         {% for row in structures %}
           <tr class="{% if row.warn %}table-warning{% endif %}">
             <td>{{ row.structure }}{% if not row.drill_set_up %} <span class="badge bg-warning text-dark">{% translate "drill not set up" %}</span>{% endif %}</td>
             <td>{% if row.fuel_days != None %}{{ row.fuel_days|floatformat:1 }}{% else %}—{% endif %}</td>
             <td data-order="{{ row.next_pop_sort }}">{{ row.next_pop_label }}</td>
+            <td>{% if row.expected_ore %}{% for ore in row.expected_ore %}{{ ore.name }}: {{ ore.amount|floatformat:1|intcomma }}{% if not forloop.last %}<br>{% endif %}{% endfor %}{% else %}—{% endif %}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <h4>{% translate "Active pops" %}</h4>
+    <table class="table table-sm moontax-datatable">
+      <thead><tr><th>{% translate "Structure" %}</th><th>{% translate "Moon" %}</th><th>{% translate "Chunk arrival" %}</th><th>{% translate "Expected ore" %}</th><th>{% translate "Actions" %}</th></tr></thead>
+      <tbody>
+        {% for row in active_pops %}
+          <tr>
+            <td>{{ row.structure }}</td>
+            <td>{{ row.moon|default:"—" }}</td>
+            <td>{{ row.chunk_arrival_time|date:"Y-m-d H:i" }}</td>
+            <td>{% if row.expected_ore %}{% for ore in row.expected_ore %}{{ ore.name }}: {{ ore.amount|floatformat:1|intcomma }}{% if not forloop.last %}<br>{% endif %}{% endfor %}{% else %}—{% endif %}</td>
+            <td>
+              <form method="post" action="{% url 'moontax:staff_mark_pop_dead' row.extraction.pk %}">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-sm btn-danger">{% translate "Mark dead" %}</button>
+              </form>
+            </td>
           </tr>
         {% endfor %}
       </tbody>

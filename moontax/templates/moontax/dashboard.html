@@ -30,13 +30,14 @@
 
     <h4>{% translate "Moons" %}</h4>
     <table class="table table-sm table-striped moontax-datatable" data-order-col="2" data-order-dir="asc">
-      <thead><tr><th>{% translate "Structure" %}</th><th>{% translate "Moon" %}</th><th>{% translate "Next pop" %}</th></tr></thead>
+      <thead><tr><th>{% translate "Structure" %}</th><th>{% translate "Moon" %}</th><th>{% translate "Next pop" %}</th><th>{% translate "Expected ore" %}</th></tr></thead>
       <tbody>
         {% for row in structures %}
           <tr>
             <td>{{ row.structure }}</td>
             <td>{{ row.moon|default:"—" }}</td>
             <td data-order="{{ row.next_pop_sort }}">{{ row.next_pop_label }}{% if row.next_pop_at %} <span class="text-muted">({{ row.next_pop_at|date:"Y-m-d H:i" }})</span>{% endif %}</td>
+            <td>{% if row.expected_ore %}{% for ore in row.expected_ore %}{{ ore.name }}: {{ ore.amount|floatformat:1|intcomma }}{% if not forloop.last %}<br>{% endif %}{% endfor %}{% else %}—{% endif %}</td>
           </tr>
         {% endfor %}
       </tbody>

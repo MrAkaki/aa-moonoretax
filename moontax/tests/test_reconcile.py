@@ -146,7 +146,7 @@ class CompressedPaymentTest(TestCase):
             structure=self.structure,
             status=Invoice.EMITTED,
         )
-        # Owe 250 → 2 whole compressed units + a forgiven 50 remainder.
+        # Owe 250 → must pay 250 raw, or 250 compressed, or any mix summing to ≥250.
         InvoiceItem.objects.create(
             invoice=self.invoice, ore_type_id=ORE_A, ore_type_name="Brimful Bitumens", units_owed=250
         )
@@ -164,15 +164,24 @@ class CompressedPaymentTest(TestCase):
         return notify
 
     def test_full_compressed_payment_accepted(self):
-        notify = self._run({ORE_A_COMPRESSED: 2})  # 200 raw-equiv, 50 forgiven
+        # 250 compressed == 250 raw-equiv (1:1); exact payment, no forgiveness needed.
+        notify = self._run({ORE_A_COMPRESSED: 250})
         self.assertEqual(self.invoice.status, Invoice.PAYMENT_SENT)
         notify.assert_not_called()
 
     def test_mixed_raw_and_compressed_accepted(self):
-        notify = self._run({ORE_A_COMPRESSED: 1, ORE_A: 150})  # 100 + 150 == 250
+        # 100 raw + 150 compressed == 250 (exact mix).
+        notify = self._run({ORE_A_COMPRESSED: 150, ORE_A: 100})
         self.assertEqual(self.invoice.status, Invoice.PAYMENT_SENT)
         notify.assert_not_called()
 
     def test_partial_compressed_without_topup_is_mismatch(self):
-        notify = self._run({ORE_A_COMPRESSED: 1})  # only 100 of 250, below 2 whole units
+        # 249 compressed < 250 owed — one unit short.
+        notify = self._run({ORE_A_COMPRESSED: 249})
         notify.assert_called_once()
+
+    def test_overpayment_in_compressed_accepted(self):
+        # 300 compressed > 250 owed — overpayment is fine.
+        notify = self._run({ORE_A_COMPRESSED: 300})
+        self.assertEqual(self.invoice.status, Invoice.PAYMENT_SENT)
+        notify.assert_not_called()

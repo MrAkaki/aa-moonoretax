@@ -14,6 +14,7 @@ urlpatterns = [
     # Staff
     path("staff/", views.staff, name="staff"),
     path("staff/invoice/<int:invoice_id>/action/", views.staff_action, name="staff_action"),
+    path("staff/pop/<int:extraction_id>/mark-dead/", views.staff_mark_pop_dead, name="staff_mark_pop_dead"),
     # Admin
     path("admin/", views.admin_config, name="admin"),
     path("admin/ore-rate/<int:rate_id>/delete/", views.ore_rate_delete, name="ore_rate_delete"),

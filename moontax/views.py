@@ -27,7 +27,6 @@ from moontax.core import matching, tax
 from moontax.forms import ConfigurationForm, NotificationSettingForm, OreTaxRateForm, StaffActionForm
 from moontax.models import (
     Configuration,
-    EveName,
     Extraction,
     Invoice,
     InvoiceComment,
@@ -72,6 +71,30 @@ def _next_pop_label(structure: Structure):
     return f"{days:.1f}d", ext.chunk_arrival_time
 
 
+def _expected_ore_list(extraction) -> list[dict]:
+    """Return [{name, amount}] sorted by amount desc for the given extraction's chunk.
+
+    ``ore_volume_by_type`` keys are strings (JSON), so we cast to int for name lookup.
+    Returns [] when the extraction is None or the dict is empty.
+    """
+    if extraction is None:
+        return []
+    raw = extraction.ore_volume_by_type  # {str(type_id): volume}
+    if not raw:
+        return []
+    # Cast string JSON keys to int for the shared name resolver.
+    int_ids = {int(k): v for k, v in raw.items() if v}
+    if not int_ids:
+        return []
+    name_map = tax.resolve_ore_names(set(int_ids))
+    result = [
+        {"name": name_map.get(tid, str(tid)), "amount": vol}
+        for tid, vol in int_ids.items()
+    ]
+    result.sort(key=lambda x: x["amount"], reverse=True)
+    return result
+
+
 def _structure_rows(config: Configuration):
     rows = []
     # Include only moon-drilling structures: those flagged as moon drills or
@@ -82,6 +105,7 @@ def _structure_rows(config: Configuration):
     for s in qs:
         label, when = _next_pop_label(s)
         fuel_days = s.fuel_days_remaining
+        ext = s.next_extraction
         rows.append(
             {
                 "structure": s,
@@ -95,6 +119,8 @@ def _structure_rows(config: Configuration):
                 "fuel_low": s.is_fuel_low(config.fuel_low_days),
                 "drill_set_up": s.drill_set_up,
                 "warn": s.is_fuel_low(config.fuel_low_days) or not s.drill_set_up,
+                # Expected ore from the upcoming chunk composition.
+                "expected_ore": _expected_ore_list(ext),
             }
         )
     return rows
@@ -163,14 +189,8 @@ def _build_pop_data(user):
         all_ore_ids.update(r["ore_type_id"] for r in by_ore if r["units"] and r["units"] > 0)
         raw_pops.append((extraction, by_char, by_ore, in_table_window))
 
-    # Build ore name map in bulk: OreType catalog wins, EveName is fallback, raw id is last resort.
-    ore_type_name_map: dict[int, str] = {
-        row["type_id"]: row["name"]
-        for row in OreType.objects.filter(type_id__in=all_ore_ids).values("type_id", "name")
-        if row["name"]
-    }
-    eve_name_fallback = EveName.objects.name_map(all_ore_ids - set(ore_type_name_map))
-    ore_name_map = {**eve_name_fallback, **ore_type_name_map}  # OreType wins over EveName
+    # Build ore name map in bulk via the shared helper: OreType → EveName → str(id).
+    ore_name_map = tax.resolve_ore_names(all_ore_ids)
 
     # Second pass: build output dicts.
     for extraction, by_char, by_ore, in_table_window in raw_pops:
@@ -292,9 +312,26 @@ def staff(request):
     unmatched = list(
         UnmatchedMiner.objects.filter(recorded_date__gte=cutoff).order_by("-recorded_date")
     )
-    unmatched_names = EveName.objects.name_map({u.ore_type_id for u in unmatched})
+    # Resolve ore names: OreType catalog → EveName → str(type_id).
+    unmatched_ore_names = tax.resolve_ore_names({u.ore_type_id for u in unmatched})
     for u in unmatched:
-        u.ore_name = unmatched_names.get(u.ore_type_id, u.ore_type_id)
+        u.ore_name = unmatched_ore_names.get(u.ore_type_id, str(u.ore_type_id))
+
+    # Active (not yet finalized) pops for the "Active pops" table.
+    active_extractions = (
+        Extraction.objects.filter(finalized=False)
+        .select_related("structure", "moon")
+        .order_by("chunk_arrival_time")
+    )
+    active_pops = []
+    for ext in active_extractions:
+        active_pops.append({
+            "extraction": ext,
+            "structure": ext.structure,
+            "moon": ext.moon,
+            "chunk_arrival_time": ext.chunk_arrival_time,
+            "expected_ore": _expected_ore_list(ext),
+        })
 
     moon_pops = MoonPopSummary.objects.select_related(
         "structure", "moon", "extraction"
@@ -320,6 +357,7 @@ def staff(request):
         "unmatched": unmatched,
         "moon_pops": moon_pops,
         "pop_ore_details": pop_ore_details,
+        "active_pops": active_pops,
         "action_form": StaffActionForm(),
         "table_page_size": config.table_page_size,
     }
@@ -373,6 +411,33 @@ def staff_action(request, invoice_id):
         )
     else:
         messages.error(request, "Unknown action.")
+    return redirect("moontax:staff")
+
+
+@staff_access_required
+def staff_mark_pop_dead(request, extraction_id):
+    """Force-finalize a not-yet-finalized pop (POST only).
+
+    Because the laser/auto fracture notification may never arrive, staff can mark a
+    pop dead at any time.  If ``fracture_time`` is missing it is set to now (type AUTO)
+    so the pop has a fracture timestamp, then ``tax.finalize_pop`` is called directly
+    (which does NOT re-check the despawn window — that is the intended bypass path).
+    """
+    if request.method != "POST":
+        return redirect("moontax:staff")
+    extraction = get_object_or_404(Extraction, pk=extraction_id)
+    if extraction.finalized:
+        messages.warning(request, f"Pop #{extraction_id} is already finalized.")
+        return redirect("moontax:staff")
+    if extraction.fracture_time is None:
+        extraction.fracture_time = timezone.now()
+        extraction.fracture_type = Extraction.AUTO
+        extraction.save(update_fields=["fracture_time", "fracture_type", "updated_at"])
+    tax.finalize_pop(extraction)
+    messages.success(
+        request,
+        f"Pop #{extraction_id} ({extraction.structure}) marked dead and finalized.",
+    )
     return redirect("moontax:staff")
 
 

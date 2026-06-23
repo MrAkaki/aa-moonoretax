@@ -16,6 +16,7 @@ MOON_ORE_GROUP_IDS = [
     1923,  # Exceptional Moon Asteroids
 ]
 
-# Moon ore compresses at a fixed 100 raw units → 1 compressed unit (uniform across all
-# moon ores). Used to let players pay a tax line in compressed ore (see core.compression).
-COMPRESSION_RATIO = 100
+# Moon ore compresses 1 raw unit → 1 compressed unit (no refinery required; the game
+# simply re-stacks the ore). A tax line owing N raw units may be paid with N raw units,
+# N compressed units, or any mix summing to ≥N. Used by core.compression.
+COMPRESSION_RATIO = 1

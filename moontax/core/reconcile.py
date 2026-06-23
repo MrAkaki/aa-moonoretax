@@ -99,8 +99,9 @@ def _reconcile_one(token, corp_id: int, raw) -> None:
 def _covers_invoice(invoice: Invoice, offered: dict) -> bool:
     """Every owed line covered by the offered raw and/or compressed ore (mix-and-match).
 
-    Each line may be paid in the mined ore, its compressed equivalent (100 raw : 1
-    compressed, rounded down), or any mix — see :mod:`moontax.core.compression`.
+    Each line may be paid in the mined ore, its compressed equivalent (1 raw : 1
+    compressed), or any mix where raw + compressed >= owed — see
+    :mod:`moontax.core.compression`.
     """
     for item in invoice.items.all():
         comp_id = OreType.objects.compressed_type_id(item.ore_type_id)
