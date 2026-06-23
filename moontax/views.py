@@ -309,13 +309,47 @@ def staff(request):
         i.days_since_emitted = (timezone.now() - i.emitted_at).days
 
     cutoff = timezone.now().date() - dt.timedelta(days=60)
-    unmatched = list(
+    unmatched_records = list(
         UnmatchedMiner.objects.filter(recorded_date__gte=cutoff).order_by("-recorded_date")
     )
     # Resolve ore names: OreType catalog → EveName → str(type_id).
-    unmatched_ore_names = tax.resolve_ore_names({u.ore_type_id for u in unmatched})
-    for u in unmatched:
-        u.ore_name = unmatched_ore_names.get(u.ore_type_id, str(u.ore_type_id))
+    unmatched_ore_names = tax.resolve_ore_names({u.ore_type_id for u in unmatched_records})
+    # Aggregate per character: one row listing everything they mined, units summed
+    # per ore type, keeping the most recent recorded date as "last seen".
+    unmatched_by_char: dict[int, dict] = {}
+    for u in unmatched_records:
+        entry = unmatched_by_char.get(u.character_id)
+        if entry is None:
+            entry = {
+                "character_id": u.character_id,
+                "character_name": u.character_name,
+                "last_date": u.recorded_date,
+                "ore_totals": {},  # ore_type_id → summed units
+            }
+            unmatched_by_char[u.character_id] = entry
+        entry["ore_totals"][u.ore_type_id] = (
+            entry["ore_totals"].get(u.ore_type_id, 0) + u.quantity
+        )
+        if u.recorded_date > entry["last_date"]:
+            entry["last_date"] = u.recorded_date
+        if not entry["character_name"] and u.character_name:
+            entry["character_name"] = u.character_name
+
+    unmatched = []
+    for entry in unmatched_by_char.values():
+        ores = [
+            {"name": unmatched_ore_names.get(tid, str(tid)), "units": units}
+            for tid, units in entry["ore_totals"].items()
+        ]
+        ores.sort(key=lambda o: o["units"], reverse=True)
+        unmatched.append({
+            "character_id": entry["character_id"],
+            "character_name": entry["character_name"],
+            "ores": ores,
+            "last_date": entry["last_date"],
+        })
+    # Most recently active characters first.
+    unmatched.sort(key=lambda c: c["last_date"], reverse=True)
 
     # Active (not yet finalized) pops for the "Active pops" table.
     active_extractions = (

@@ -104,9 +104,9 @@ class UnmatchedMinerOreNameTest(TestCase):
         unmatched = response.context["unmatched"]
         self.assertEqual(len(unmatched), 1)
         # Must be the catalog name, not the raw numeric id.
-        self.assertEqual(unmatched[0].ore_name, "Zeolites")
-        self.assertNotEqual(unmatched[0].ore_name, str(ORE_CATALOG))
-        self.assertNotEqual(unmatched[0].ore_name, ORE_CATALOG)
+        self.assertEqual(unmatched[0]["ores"][0]["name"], "Zeolites")
+        self.assertNotEqual(unmatched[0]["ores"][0]["name"], str(ORE_CATALOG))
+        self.assertNotEqual(unmatched[0]["ores"][0]["name"], ORE_CATALOG)
 
     def test_unknown_ore_falls_back_to_str_id(self):
         """An ore with no catalog and no EveName entry shows str(type_id)."""
@@ -114,7 +114,7 @@ class UnmatchedMinerOreNameTest(TestCase):
         response = self.client.get("/moontax/staff/")
         unmatched = response.context["unmatched"]
         self.assertEqual(len(unmatched), 1)
-        self.assertEqual(unmatched[0].ore_name, str(ORE_RAW))
+        self.assertEqual(unmatched[0]["ores"][0]["name"], str(ORE_RAW))
 
 
 # --------------------------------------------------------------------------------------

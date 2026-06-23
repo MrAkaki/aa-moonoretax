@@ -47,10 +47,14 @@
 
     <h4>{% translate "Unmatched miners (last 60 days)" %}</h4>
     <table class="table table-sm table-striped moontax-datatable">
-      <thead><tr><th>{% translate "Character" %}</th><th>{% translate "Ore" %}</th><th>{% translate "Units" %}</th><th>{% translate "Date" %}</th></tr></thead>
+      <thead><tr><th>{% translate "Character" %}</th><th>{% translate "Ore" %}</th><th>{% translate "Last seen" %}</th></tr></thead>
       <tbody>
         {% for u in unmatched %}
-          <tr><td>{{ u.character_name|default:u.character_id }}</td><td>{{ u.ore_name }}</td><td>{{ u.quantity|intcomma }}</td><td>{{ u.recorded_date }}</td></tr>
+          <tr>
+            <td>{{ u.character_name|default:u.character_id }}</td>
+            <td>{% if u.ores %}{% for ore in u.ores %}{{ ore.name }}: {{ ore.units|intcomma }}{% if not forloop.last %}<br>{% endif %}{% endfor %}{% else %}—{% endif %}</td>
+            <td>{{ u.last_date }}</td>
+          </tr>
         {% endfor %}
       </tbody>
     </table>
