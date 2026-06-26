@@ -9,7 +9,7 @@ Status mapping → invoice:
 - ``outstanding`` / ``in_progress`` → ``payment_sent`` (+ mismatch check while pending),
 - ``finished*`` → ``payment_accepted`` (final — paid even if ore differs),
 - ``cancelled`` / ``rejected`` / ``failed`` / ``deleted`` / ``reversed`` → invoice
-  reverts to ``emitted`` with a **new code**.
+  reverts to ``emitted`` (**keeping its code** so the player can resubmit).
 """
 
 from __future__ import annotations
@@ -157,15 +157,18 @@ def _apply_pending(token, corp_id: int, pc: PaymentContract, invoice: Invoice) -
 
 
 def _apply_failed(pc: PaymentContract, invoice: Invoice) -> None:
-    """A matched contract went terminal-bad → revert invoice to emitted with a new code."""
+    """A matched contract went terminal-bad → revert invoice to emitted.
+
+    The invoice **keeps its code** so the player can resubmit a fresh contract using the
+    same code they were already given (e.g. cancel a wrong-amount contract and redo it).
+    """
     if invoice.is_paid:
         return  # already settled by another route; leave it
     if invoice.status == Invoice.EMITTED:
         return
     invoice.status = Invoice.EMITTED
     invoice.paid_at = None
-    invoice.regenerate_code(save=False)
-    invoice.save(update_fields=["status", "paid_at", "code", "updated_at"])
+    invoice.save(update_fields=["status", "paid_at", "updated_at"])
 
 
 def _fetch_items(token, corp_id: int, pc: PaymentContract):

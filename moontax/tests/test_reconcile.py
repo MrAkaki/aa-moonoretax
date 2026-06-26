@@ -88,7 +88,7 @@ class ReconcileTest(TestCase):
         self.assertEqual(self.invoice.status, Invoice.PAYMENT_ACCEPTED)
         self.assertIsNotNone(self.invoice.paid_at)
 
-    def test_failed_reverts_to_emitted_with_new_code(self):
+    def test_failed_reverts_to_emitted_keeping_code(self):
         # First make it payment_sent.
         with mock.patch("moontax.providers.contract_items", return_value=self._items({ORE_A: 100})):
             reconcile.ingest_and_reconcile(None, CORP, [_contract("MT-ABC123")])
@@ -96,7 +96,24 @@ class ReconcileTest(TestCase):
             reconcile.ingest_and_reconcile(None, CORP, [_contract("MT-ABC123", status="cancelled")])
         self.invoice.refresh_from_db()
         self.assertEqual(self.invoice.status, Invoice.EMITTED)
-        self.assertNotEqual(self.invoice.code, "MT-ABC123")
+        # The code is preserved so the player can resubmit with the same code.
+        self.assertEqual(self.invoice.code, "MT-ABC123")
+
+    def test_resubmit_same_code_after_cancel_matches(self):
+        """Cancel a wrong-amount contract, then redo it with the same code → it matches."""
+        # Wrong amount → payment_sent.
+        with mock.patch("moontax.providers.contract_items", return_value=self._items({ORE_A: 50})):
+            reconcile.ingest_and_reconcile(None, CORP, [_contract("MT-ABC123")])
+        # Cancel it → back to emitted, same code.
+        with mock.patch("moontax.providers.contract_items", return_value=[]):
+            reconcile.ingest_and_reconcile(None, CORP, [_contract("MT-ABC123", status="cancelled")])
+        # Redo with the same code and the correct amount (new contract_id).
+        with mock.patch("moontax.providers.contract_items", return_value=self._items({ORE_A: 100})):
+            reconcile.ingest_and_reconcile(
+                None, CORP, [_contract("MT-ABC123", contract_id=5002, status="finished")]
+            )
+        self.invoice.refresh_from_db()
+        self.assertEqual(self.invoice.status, Invoice.PAYMENT_ACCEPTED)
 
     def test_contract_assigned_to_other_corp_is_ignored(self):
         """A contract whose assignee_id is NOT the payment corp must be ignored.
