@@ -247,6 +247,10 @@ def index(request):
         .select_related("structure", "moon")
     )
     unpaid = [i for i in invoices if not i.is_paid]
+    # Resolve-and-persist any blank/numeric ore names so the unpaid-invoices alert
+    # shows ore names, not type ids (heals invoices emitted before the catalog filled).
+    for inv in invoices:
+        tax.heal_invoice_item_names(inv.items.all())
 
     pop_charts, mined_pops = _build_pop_data(user)
 
@@ -307,6 +311,8 @@ def staff(request):
     for i in list(ready) + list(unpaid) + list(paid):
         i.main_char = _main_char_name(i.user)
         i.days_since_emitted = (timezone.now() - i.emitted_at).days
+        # Resolve-and-persist blank/numeric ore names for the staff invoice tables.
+        tax.heal_invoice_item_names(i.items.all())
 
     cutoff = timezone.now().date() - dt.timedelta(days=60)
     unmatched_records = list(

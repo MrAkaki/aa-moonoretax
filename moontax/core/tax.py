@@ -221,17 +221,52 @@ def _write_pop_summary(extraction: Extraction) -> None:
 
 
 def _sync_items(invoice: Invoice, per_ore: dict[int, int]) -> None:
-    """Make the invoice's items exactly ``per_ore`` (ore_type_id → units)."""
+    """Make the invoice's items exactly ``per_ore`` (ore_type_id → units).
+
+    Ore names are resolved through :func:`resolve_ore_names` (OreType catalog → EveName)
+    so the stored ``ore_type_name`` is the real ore name, not the numeric type_id. An
+    unresolvable id is stored blank so it is re-tried later by
+    :func:`heal_invoice_item_names`.
+    """
     invoice.items.exclude(ore_type_id__in=per_ore.keys()).delete()
+    names = resolve_ore_names(per_ore.keys())
     for ore_type_id, units in per_ore.items():
-        name = OreTaxRate.objects.filter(ore_type_id=ore_type_id).values_list(
-            "ore_type_name", flat=True
-        ).first() or EveName.objects.get_name(ore_type_id)
+        resolved = names.get(ore_type_id, "")
+        name = "" if resolved == str(ore_type_id) else resolved
         InvoiceItem.objects.update_or_create(
             invoice=invoice,
             ore_type_id=ore_type_id,
             defaults={"units_owed": units, "ore_type_name": name},
         )
+
+
+def heal_invoice_item_names(items) -> int:
+    """Resolve-on-the-fly and persist missing ``InvoiceItem.ore_type_name`` values.
+
+    Older invoice items (and any whose ore wasn't in the catalog when emitted) carry a
+    blank or numeric ``ore_type_name``, so alerts and Discord DMs fall back to showing
+    the raw type_id. This re-resolves those through :func:`resolve_ore_names` and writes
+    the real name back, mutating the passed objects in place so the current render is
+    correct too. Returns the number of rows updated.
+
+    Accepts any iterable of ``InvoiceItem`` (e.g. a prefetched ``invoice.items.all()``).
+    """
+    pending = [
+        it
+        for it in items
+        if not it.ore_type_name or it.ore_type_name == str(it.ore_type_id)
+    ]
+    if not pending:
+        return 0
+    names = resolve_ore_names({it.ore_type_id for it in pending})
+    updated = 0
+    for it in pending:
+        name = names.get(it.ore_type_id, "")
+        if name and name != str(it.ore_type_id):
+            InvoiceItem.objects.filter(pk=it.pk).update(ore_type_name=name)
+            it.ore_type_name = name
+            updated += 1
+    return updated
 
 
 def _notify_new_invoice(invoice: Invoice) -> None:

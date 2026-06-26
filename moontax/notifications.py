@@ -62,12 +62,18 @@ def deliver(user, title: str, message: str, level: str = "info") -> None:
 
 
 def _ore_lines(mapping) -> str:
-    """Render ``{ore_type_id: units}`` as readable lines."""
+    """Render ``{ore_type_id: units}`` as readable lines.
+
+    Names resolve through the OreType catalog (then EveName, then the raw id) so contract
+    items and ad-hoc maps show ore names rather than type ids.
+    """
     if not mapping:
         return "  (none)"
-    names = EveName.objects.name_map(mapping.keys())
+    from moontax.core import tax
+
+    names = tax.resolve_ore_names(mapping.keys())
     return "\n".join(
-        f"  • {names.get(tid) or tid}: {units:,}" for tid, units in mapping.items()
+        f"  • {names.get(tid, tid)}: {units:,}" for tid, units in mapping.items()
     )
 
 
@@ -80,6 +86,11 @@ def _ore_owed_lines(invoice: Invoice) -> str:
     items = list(invoice.items.all())
     if not items:
         return "  (none)"
+    from moontax.core import tax
+
+    # Backfill any blank/numeric names from the catalog and persist them, so this DM
+    # (and every later render) shows ore names instead of raw type ids.
+    tax.heal_invoice_item_names(items)
     lines = []
     for item in items:
         name = item.ore_type_name or EveName.objects.get_name(item.ore_type_id)

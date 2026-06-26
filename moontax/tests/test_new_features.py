@@ -370,3 +370,55 @@ class ResolveOreNamesTest(TestCase):
         EveName.objects.create(eve_id=ORE_CATALOG, name="ShouldNotWin", category=EveName.ORE)
         result = tax.resolve_ore_names([ORE_CATALOG])
         self.assertEqual(result[ORE_CATALOG], "Zeolites")
+
+
+class HealInvoiceItemNamesTest(TestCase):
+    """tax.heal_invoice_item_names backfills blank/numeric names from the catalog."""
+
+    def setUp(self):
+        OreType.objects.create(type_id=ORE_CATALOG, name="Zeolites", group_id=1884)
+        self.user = make_user("miner")
+        self.structure = make_structure()
+        self.extraction = make_extraction(
+            self.structure, timezone.now() - dt.timedelta(days=1)
+        )
+        self.invoice = Invoice.objects.create(
+            code="MT-HEAL01",
+            user=self.user,
+            extraction=self.extraction,
+            structure=self.structure,
+            status=Invoice.EMITTED,
+        )
+
+    def _item(self, ore_type_id, name):
+        from moontax.models import InvoiceItem
+
+        return InvoiceItem.objects.create(
+            invoice=self.invoice, ore_type_id=ore_type_id, ore_type_name=name, units_owed=10
+        )
+
+    def test_blank_name_resolved_and_persisted(self):
+        item = self._item(ORE_CATALOG, "")
+        updated = tax.heal_invoice_item_names([item])
+        self.assertEqual(updated, 1)
+        self.assertEqual(item.ore_type_name, "Zeolites")  # mutated in place
+        item.refresh_from_db()
+        self.assertEqual(item.ore_type_name, "Zeolites")  # and persisted
+
+    def test_numeric_name_treated_as_placeholder(self):
+        item = self._item(ORE_CATALOG, str(ORE_CATALOG))
+        self.assertEqual(tax.heal_invoice_item_names([item]), 1)
+        item.refresh_from_db()
+        self.assertEqual(item.ore_type_name, "Zeolites")
+
+    def test_unresolvable_left_blank(self):
+        item = self._item(ORE_RAW, "")
+        self.assertEqual(tax.heal_invoice_item_names([item]), 0)
+        item.refresh_from_db()
+        self.assertEqual(item.ore_type_name, "")
+
+    def test_real_name_untouched(self):
+        item = self._item(ORE_CATALOG, "Custom Name")
+        self.assertEqual(tax.heal_invoice_item_names([item]), 0)
+        item.refresh_from_db()
+        self.assertEqual(item.ore_type_name, "Custom Name")
